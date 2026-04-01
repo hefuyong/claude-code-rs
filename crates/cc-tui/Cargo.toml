@@ -1,0 +1,28 @@
+[package]
+name = "cc-tui"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+cc-types.workspace = true
+cc-error.workspace = true
+cc-api.workspace = true
+cc-query.workspace = true
+cc-tools-core.workspace = true
+cc-tools.workspace = true
+cc-tasks.workspace = true
+cc-state.workspace = true
+cc-vim.workspace = true
+cc-config.workspace = true
+cc-permissions.workspace = true
+cc-cost.workspace = true
+cc-memory.workspace = true
+cc-session.workspace = true
+ratatui.workspace = true
+crossterm = { workspace = true, features = ["event-stream"] }
+tokio.workspace = true
+tokio-stream.workspace = true
+futures.workspace = true
+tracing.workspace = true
+serde_json.workspace = true
+chrono.workspace = true

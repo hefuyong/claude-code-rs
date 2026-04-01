@@ -1,0 +1,146 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/cc-types",
+    "crates/cc-error",
+    "crates/cc-config",
+    "crates/cc-permissions",
+    "crates/cc-messages",
+    "crates/cc-api",
+    "crates/cc-tools-core",
+    "crates/cc-tools",
+    "crates/cc-commands",
+    "crates/cc-skills",
+    "crates/cc-query",
+    "crates/cc-query-engine",
+    "crates/cc-state",
+    "crates/cc-tasks",
+    "crates/cc-mcp",
+    "crates/cc-memory",
+    "crates/cc-session",
+    "crates/cc-vim",
+    "crates/cc-bridge",
+    "crates/cc-remote",
+    "crates/cc-coordinator",
+    "crates/cc-plugins",
+    "crates/cc-oauth",
+    "crates/cc-analytics",
+    "crates/cc-cost",
+    "crates/cc-compact",
+    "crates/cc-hooks",
+    "crates/cc-tui",
+    "crates/cc-cli",
+    "crates/cc-buddy",
+    "crates/cc-sdk",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Claude Code RS Contributors"]
+license = "MIT"
+rust-version = "1.75"
+
+[workspace.dependencies]
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+async-stream = "0.3"
+async-trait = "0.1"
+futures = "0.3"
+
+# HTTP
+reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"], default-features = false }
+reqwest-eventsource = "0.6"
+
+# CLI
+clap = { version = "4", features = ["derive", "env", "string"] }
+
+# Terminal UI
+ratatui = "0.29"
+crossterm = "0.28"
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Utilities
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+globset = "0.4"
+grep-regex = "0.1"
+grep-searcher = "0.1"
+regex = "1"
+dirs = "5"
+toml = "0.8"
+sha2 = "0.10"
+base64 = "0.22"
+url = { version = "2", features = ["serde"] }
+rand = "0.8"
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+
+# Testing
+wiremock = "0.6"
+proptest = "1"
+insta = { version = "1", features = ["json", "yaml"] }
+tempfile = "3"
+
+# Internal crates
+cc-types = { path = "crates/cc-types" }
+cc-error = { path = "crates/cc-error" }
+cc-config = { path = "crates/cc-config" }
+cc-permissions = { path = "crates/cc-permissions" }
+cc-messages = { path = "crates/cc-messages" }
+cc-api = { path = "crates/cc-api" }
+cc-tools-core = { path = "crates/cc-tools-core" }
+cc-tools = { path = "crates/cc-tools" }
+cc-commands = { path = "crates/cc-commands" }
+cc-skills = { path = "crates/cc-skills" }
+cc-query = { path = "crates/cc-query" }
+cc-query-engine = { path = "crates/cc-query-engine" }
+cc-state = { path = "crates/cc-state" }
+cc-tasks = { path = "crates/cc-tasks" }
+cc-mcp = { path = "crates/cc-mcp" }
+cc-memory = { path = "crates/cc-memory" }
+cc-session = { path = "crates/cc-session" }
+cc-vim = { path = "crates/cc-vim" }
+cc-bridge = { path = "crates/cc-bridge" }
+cc-remote = { path = "crates/cc-remote" }
+cc-coordinator = { path = "crates/cc-coordinator" }
+cc-plugins = { path = "crates/cc-plugins" }
+cc-oauth = { path = "crates/cc-oauth" }
+cc-analytics = { path = "crates/cc-analytics" }
+cc-cost = { path = "crates/cc-cost" }
+cc-compact = { path = "crates/cc-compact" }
+cc-hooks = { path = "crates/cc-hooks" }
+cc-tui = { path = "crates/cc-tui" }
+cc-cli = { path = "crates/cc-cli" }
+cc-buddy = { path = "crates/cc-buddy" }
+cc-sdk = { path = "crates/cc-sdk" }
+
+[package]
+name = "claude-code-rs"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "claude-code"
+path = "src/main.rs"
+
+[dependencies]
+cc-cli.workspace = true
+cc-error.workspace = true
+tokio.workspace = true
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

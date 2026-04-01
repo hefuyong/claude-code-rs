@@ -1,0 +1,8 @@
+[package]
+name = "cc-error"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+cc-types.workspace = true
+thiserror.workspace = true

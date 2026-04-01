@@ -1,0 +1,9 @@
+[package]
+name = "cc-buddy"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+cc-types.workspace = true
+serde.workspace = true
+rand.workspace = true

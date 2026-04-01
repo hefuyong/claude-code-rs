@@ -1,0 +1,41 @@
+[package]
+name = "cc-cli"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+cc-types.workspace = true
+cc-error.workspace = true
+cc-config.workspace = true
+cc-messages.workspace = true
+cc-api.workspace = true
+cc-cost.workspace = true
+cc-tools.workspace = true
+cc-tools-core.workspace = true
+cc-permissions.workspace = true
+cc-query.workspace = true
+cc-session.workspace = true
+cc-memory.workspace = true
+cc-commands.workspace = true
+cc-skills.workspace = true
+cc-hooks.workspace = true
+cc-state.workspace = true
+cc-tui.workspace = true
+cc-mcp.workspace = true
+cc-plugins.workspace = true
+cc-bridge.workspace = true
+cc-coordinator.workspace = true
+cc-analytics.workspace = true
+cc-buddy.workspace = true
+cc-compact.workspace = true
+clap.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+futures.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+dirs.workspace = true
+uuid.workspace = true

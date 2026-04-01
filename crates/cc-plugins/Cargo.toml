@@ -1,0 +1,14 @@
+[package]
+name = "cc-plugins"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+cc-types.workspace = true
+cc-error.workspace = true
+cc-mcp.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+dirs.workspace = true
