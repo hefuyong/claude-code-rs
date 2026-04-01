@@ -27,6 +27,7 @@ mod feature_commands;
 mod diag_commands;
 mod mcp_commands;
 mod misc_commands;
+pub mod new_feature_commands;
 
 // ── Core types ──────────────────────────────────────────────────────
 
@@ -392,6 +393,7 @@ pub fn register_builtin_commands(registry: &mut CommandRegistry) {
     diag_commands::register_diag_commands(registry);
     mcp_commands::register_mcp_commands(registry);
     misc_commands::register_misc_commands(registry);
+    new_feature_commands::register_new_feature_commands(registry);
 }
 
 #[cfg(test)]
@@ -446,16 +448,16 @@ mod tests {
     }
 
     #[test]
-    fn list_commands_has_70() {
+    fn list_commands_has_76() {
         let mut reg = CommandRegistry::new();
         register_builtin_commands(&mut reg);
         let cmds = reg.list();
-        // 9 core + 9 session + 10 code + 8 config + 11 feature
-        // + 8 diag + 4 mcp + 11 misc = 70
+        // 9 core + 9 session + 10 code + 7 config + 10 feature
+        // + 8 diag + 4 mcp + 11 misc + 8 new_feature = 76
         assert_eq!(
             cmds.len(),
-            70,
-            "Expected exactly 70 commands, got {}",
+            76,
+            "Expected exactly 76 commands, got {}",
             cmds.len()
         );
     }

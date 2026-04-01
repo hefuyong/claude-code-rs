@@ -190,32 +190,6 @@ pub fn register_feature_commands(registry: &mut CommandRegistry) {
         }),
     );
 
-    // /voice - Toggle voice mode
-    registry.register(
-        Command {
-            name: "voice".into(),
-            description: "Toggle voice input/output mode".into(),
-            aliases: vec![],
-        },
-        Box::new(|args: &str, _ctx: &mut CommandContext| {
-            let args = args.trim().to_string();
-            Box::pin(async move {
-                match args.as_str() {
-                    "on" => Ok(CommandOutput::text(
-                        "Voice mode enabled.\n\
-                         Listening for voice input... (not yet implemented)",
-                    )),
-                    "off" => Ok(CommandOutput::text("Voice mode disabled.")),
-                    _ => Ok(CommandOutput::text(
-                        "Voice mode: off\n\
-                         Usage: /voice [on|off]\n\
-                         Note: voice mode requires microphone access and is experimental.",
-                    )),
-                }
-            })
-        }),
-    );
-
     // /vim - Toggle vim mode
     registry.register(
         Command {

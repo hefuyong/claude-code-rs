@@ -18,6 +18,7 @@ cc-permissions.workspace = true
 cc-cost.workspace = true
 cc-memory.workspace = true
 cc-session.workspace = true
+cc-voice.workspace = true
 ratatui.workspace = true
 crossterm = { workspace = true, features = ["event-stream"] }
 tokio.workspace = true

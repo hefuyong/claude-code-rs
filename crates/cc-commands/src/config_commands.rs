@@ -487,32 +487,6 @@ pub fn register_config_commands(registry: &mut CommandRegistry) {
         }),
     );
 
-    // /keybindings - Show keybindings
-    registry.register(
-        Command {
-            name: "keybindings".into(),
-            description: "Show keyboard shortcuts".into(),
-            aliases: vec!["keys".into(), "shortcuts".into()],
-        },
-        Box::new(|_args: &str, _ctx: &mut CommandContext| {
-            Box::pin(async {
-                Ok(CommandOutput::text(
-                    "Keybindings\n\
-                     ===========\n\
-                     Ctrl+C       Interrupt current generation\n\
-                     Ctrl+D       Exit (same as /exit)\n\
-                     Ctrl+L       Clear screen\n\
-                     Up/Down      Navigate prompt history\n\
-                     Tab          Autocomplete command\n\
-                     Esc          Cancel current input (vim mode)\n\
-                     Ctrl+R       Search prompt history\n\
-                     Ctrl+W       Delete word backward\n\
-                     Ctrl+U       Delete line backward",
-                ))
-            })
-        }),
-    );
-
     // /output-style - Set output style
     registry.register(
         Command {

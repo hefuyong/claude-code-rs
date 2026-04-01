@@ -35,6 +35,14 @@ pub struct TuiConfig {
     pub max_tokens: u32,
     /// Maximum agentic turns per query.
     pub max_turns: u32,
+    /// Voice mode configuration, if available.
+    pub voice_config: Option<cc_voice::config::VoiceConfig>,
+    /// Active output style name (e.g. "concise", "verbose").
+    pub output_style: Option<String>,
+    /// Whether an upstream proxy is configured.
+    pub proxy_configured: bool,
+    /// Whether LSP integration is enabled.
+    pub lsp_enabled: bool,
 }
 
 impl Default for TuiConfig {
@@ -48,6 +56,10 @@ impl Default for TuiConfig {
             permission_mode: cc_permissions::PermissionMode::Default,
             max_tokens: 16384,
             max_turns: 10,
+            voice_config: None,
+            output_style: None,
+            proxy_configured: false,
+            lsp_enabled: false,
         }
     }
 }

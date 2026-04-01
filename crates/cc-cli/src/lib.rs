@@ -11,15 +11,21 @@ use cc_config::AppConfig;
 use cc_cost::{CallUsage, CostTracker};
 use cc_error::{CcError, CcResult};
 use cc_hooks::HookRegistry;
+use cc_keybindings::KeybindingRegistry;
+use cc_lsp::LspManager;
 use cc_mcp::McpConnectionManager;
 use cc_memory::MemoryScanner;
+use cc_migrations::MigrationRunner;
+use cc_output_styles::OutputStyleRegistry;
 use cc_permissions::{PermissionContext, PermissionMode};
 use cc_plugins::PluginManager;
+use cc_proxy::ProxyConfig;
 use cc_session::SessionManager;
 use cc_skills::SkillRegistry;
 use cc_tools_core::{ToolContext, ToolExecutor, ToolRegistry};
 use cc_tui::TuiConfig;
 use cc_types::SessionId;
+use cc_voice::config::VoiceConfig;
 use clap::Parser;
 use std::io::Write;
 use std::path::PathBuf;
@@ -377,6 +383,56 @@ async fn run_doctor(config: &AppConfig) -> CcResult<()> {
     let companion = cc_buddy::Companion::generate(42);
     println!("Companion ........ {}", companion.summary());
 
+    // Check proxy.
+    print!("Proxy ............ ");
+    let proxy = ProxyConfig::from_env();
+    if proxy.is_configured() {
+        println!("configured");
+    } else {
+        println!("not configured");
+    }
+
+    // Check LSP.
+    print!("LSP servers ...... ");
+    println!("{} configured", cc_lsp::config::default_servers().len());
+
+    // Check keybindings.
+    print!("Keybindings ...... ");
+    let mut kb = KeybindingRegistry::new();
+    kb.register_defaults();
+    println!("{} bindings", kb.list().len());
+
+    // Check output styles.
+    print!("Output styles .... ");
+    let mut styles = OutputStyleRegistry::new();
+    styles.register_builtins();
+    println!("{} available", styles.list().len());
+
+    // Check migrations.
+    print!("Migrations ....... ");
+    match MigrationRunner::new() {
+        Ok(mut m) => {
+            m.register_all_builtin();
+            match m.pending() {
+                Ok(p) => println!("{} pending", p.len()),
+                Err(_) => println!("unavailable"),
+            }
+        }
+        Err(_) => println!("unavailable"),
+    }
+
+    // Check voice.
+    print!("Voice mode ....... ");
+    let audio_backend = cc_voice::audio::AudioCapture::detect_backend();
+    println!("{:?}", audio_backend);
+
+    // Check IDE connection.
+    print!("IDE connection ... ");
+    match cc_ide_connect::IdeConnection::auto_detect().await {
+        Some((ide, _)) => println!("{} detected", ide),
+        None => println!("none detected"),
+    }
+
     println!("\nAll checks complete.");
     Ok(())
 }
@@ -453,6 +509,10 @@ fn build_tui_config(
         permission_mode: parse_permission_mode(cli.permission_mode.as_deref()),
         max_tokens: cli.max_tokens,
         max_turns: cli.max_turns,
+        voice_config: None,
+        output_style: None,
+        proxy_configured: ProxyConfig::from_env().is_configured(),
+        lsp_enabled: false,
     }
 }
 
@@ -525,7 +585,43 @@ async fn run_interactive(config: &AppConfig, cli: &Cli) -> CcResult<()> {
         "permission_mode": format!("{:?}", permission_mode),
     }));
 
-    // 12. Build TUI config and launch.
+    // 12. Run migrations on first startup.
+    let mut migrator = MigrationRunner::new().unwrap_or_else(|e| {
+        tracing::warn!("Could not initialize migration runner: {e}");
+        MigrationRunner::with_applied_file(working_dir.join(".claude").join("migrations_applied.json"))
+    });
+    migrator.register_all_builtin();
+    if let Ok(applied) = migrator.run(&mut serde_json::to_value(&config).unwrap_or_default()) {
+        if !applied.is_empty() {
+            tracing::info!("Applied {} settings migrations", applied.len());
+        }
+    }
+
+    // 13. Load proxy config from environment.
+    let proxy_config = ProxyConfig::from_env();
+    if proxy_config.is_configured() {
+        tracing::info!("Proxy configured: {:?}", proxy_config.proxy_url_for("https://api.anthropic.com"));
+    }
+
+    // 14. Load output styles.
+    let mut style_registry = OutputStyleRegistry::new();
+    style_registry.register_builtins();
+    style_registry.load_from_disk(&working_dir).await.ok();
+
+    // 15. Initialize keybindings.
+    let mut keybindings = KeybindingRegistry::new();
+    keybindings.register_defaults();
+    if let Some(config_dir) = dirs::config_dir() {
+        keybindings.load_user_bindings(&config_dir.join("claude-code-rs")).ok();
+    }
+
+    // 16. Voice config (disabled by default).
+    let _voice_config = VoiceConfig::default();
+
+    // 17. LSP manager (start servers lazily).
+    let _lsp_manager = LspManager::new();
+
+    // 18. Build TUI config and launch.
     let tui_config = build_tui_config(
         config,
         cli,
