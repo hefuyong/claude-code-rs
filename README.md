@@ -7,8 +7,9 @@ A high-performance, single-binary AI coding assistant for the terminal, built as
 ## Features
 
 - **Single Binary** — 6MB release build, no runtime dependencies (Node.js/Bun not required)
+- **38 crates** in Cargo workspace, 131 source files, 29,300 lines of Rust, 373 tests
 - **38 Built-in Tools** — Bash, File Read/Write/Edit, Glob, Grep, Agent, MCP, Notebook, Plan Mode, Worktree, and more
-- **70 Slash Commands** — `/diff`, `/commit`, `/review`, `/doctor`, `/vim`, `/mcp`, `/resume`, `/export`, and more
+- **76 Slash Commands** — `/diff`, `/commit`, `/review`, `/doctor`, `/vim`, `/mcp`, `/voice`, `/lsp`, `/styles`, and more
 - **Streaming API Client** — SSE streaming with exponential backoff retry and full error handling
 - **Agentic Loop** — Tool call → execute → loop, with automatic conversation compaction
 - **Terminal UI** — ratatui-based REPL with virtual scrolling, diff coloring, search, task panel, permission dialogs
@@ -23,6 +24,17 @@ A high-performance, single-binary AI coding assistant for the terminal, built as
 - **Plugin System** — Loadable plugins with MCP server integration
 - **OAuth PKCE** — Full authentication flow
 - **Cost Tracking** — Per-model pricing (Opus/Sonnet/Haiku)
+- **Voice Mode** — Audio capture (sox/arecord), real-time STT streaming, keyterm detection
+- **LSP Integration** — Multi-server manager, diagnostic registry, file event routing
+- **IDE Direct Connect** — VS Code / JetBrains socket connection with auto-detect
+- **Custom Keybindings** — User-configurable shortcuts with parser and crossterm resolver
+- **Upstream Proxy** — HTTP/HTTPS proxy support with NO_PROXY bypass
+- **Settings Migrations** — Automatic settings upgrade with 8 built-in migrations
+- **Output Styles** — Customizable output themes (concise/verbose/technical/friendly)
+- **Auto-Memory** — End-of-turn memory extraction + Dream consolidation tasks
+- **Auto-Compact** — Token-based compaction triggers with micro-compact and warnings
+- **Feature Flags** — 10 built-in feature gates with override support
+- **Policy Limits** — Token/cost/model/tool enforcement per org
 
 ## Quick Start
 
@@ -114,7 +126,7 @@ Options:
 
 ## Architecture
 
-31 crates organized as a Cargo workspace:
+38 crates organized as a Cargo workspace:
 
 ```
 claude-code-rs/
@@ -150,6 +162,13 @@ claude-code-rs/
 │   ├── cc-tasks/            # Background task management
 │   ├── cc-buddy/            # Companion character system
 │   ├── cc-sdk/              # Programmatic SDK interface
+│   ├── cc-voice/            # Voice mode (audio capture, STT)
+│   ├── cc-lsp/              # Language Server Protocol integration
+│   ├── cc-ide-connect/      # IDE direct connection (VS Code, JetBrains)
+│   ├── cc-keybindings/      # Customizable keybinding system
+│   ├── cc-proxy/            # Upstream HTTP/HTTPS proxy
+│   ├── cc-migrations/       # Settings migration system
+│   ├── cc-output-styles/    # Output style themes
 │   └── cc-cli/              # CLI parsing & integration
 ```
 
@@ -192,7 +211,7 @@ Configuration is loaded from multiple sources (highest priority first):
 ## Testing
 
 ```bash
-# Run all 175 tests
+# Run all 373 tests
 cargo test --workspace
 
 # Run specific crate tests
