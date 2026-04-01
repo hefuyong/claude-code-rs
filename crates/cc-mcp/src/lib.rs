@@ -14,6 +14,8 @@
 //! The primary entry-point for callers is [`McpClient`] (single server)
 //! or [`McpConnectionManager`] (multiple servers).
 
+pub mod channel;
+pub mod elicitation;
 pub mod manager;
 pub mod permissions;
 pub mod protocol;
@@ -21,6 +23,10 @@ pub mod transport;
 pub mod types;
 
 // Re-export the most commonly used items at crate root.
+pub use channel::{ChannelManager, ChannelNotification};
+pub use elicitation::{
+    ElicitationAction, ElicitationHandler, ElicitationRequest, ElicitationResponse,
+};
 pub use manager::McpConnectionManager;
 pub use permissions::{McpPermissions, ToolPermission};
 pub use protocol::{JsonRpcError, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse};

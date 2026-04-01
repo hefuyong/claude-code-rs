@@ -32,6 +32,13 @@ members = [
     "crates/cc-cli",
     "crates/cc-buddy",
     "crates/cc-sdk",
+    "crates/cc-voice",
+    "crates/cc-lsp",
+    "crates/cc-keybindings",
+    "crates/cc-proxy",
+    "crates/cc-migrations",
+    "crates/cc-output-styles",
+    "crates/cc-ide-connect",
 ]
 
 [workspace.package]
@@ -124,6 +131,13 @@ cc-tui = { path = "crates/cc-tui" }
 cc-cli = { path = "crates/cc-cli" }
 cc-buddy = { path = "crates/cc-buddy" }
 cc-sdk = { path = "crates/cc-sdk" }
+cc-voice = { path = "crates/cc-voice" }
+cc-lsp = { path = "crates/cc-lsp" }
+cc-keybindings = { path = "crates/cc-keybindings" }
+cc-proxy = { path = "crates/cc-proxy" }
+cc-migrations = { path = "crates/cc-migrations" }
+cc-output-styles = { path = "crates/cc-output-styles" }
+cc-ide-connect = { path = "crates/cc-ide-connect" }
 
 [package]
 name = "claude-code-rs"

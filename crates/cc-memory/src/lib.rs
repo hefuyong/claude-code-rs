@@ -2,6 +2,12 @@
 //!
 //! Scans for CLAUDE.md, MEMORY.md, and `.claude/memory/` files
 //! to inject into the system prompt as persistent context.
+//!
+//! Also provides auto-extraction of memories from conversations
+//! and periodic "dream" consolidation of stored memories.
+
+pub mod dream;
+pub mod extraction;
 
 use std::path::{Path, PathBuf};
 

@@ -1,19 +1,16 @@
 [package]
-name = "cc-mcp"
+name = "cc-migrations"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
 cc-types.workspace = true
 cc-error.workspace = true
-cc-tools-core.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-tokio.workspace = true
 tracing.workspace = true
-tokio-tungstenite.workspace = true
-reqwest.workspace = true
-futures.workspace = true
-async-trait.workspace = true
+dirs.workspace = true
 chrono.workspace = true
-uuid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
