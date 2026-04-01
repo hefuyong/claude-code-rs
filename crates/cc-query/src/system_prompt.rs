@@ -989,4 +989,74 @@ mod tests {
         assert!(!env.date.is_empty());
         assert_eq!(env.model_name, "test-model");
     }
+
+    #[test]
+    fn test_build_default_produces_output() {
+        // Verify that build_default with minimal arguments returns a
+        // non-empty string containing the core identity section.
+        let env = EnvironmentInfo {
+            platform: "test-platform".to_string(),
+            shell: "test-shell".to_string(),
+            os_version: "TestOS 1.0".to_string(),
+            working_directory: "/tmp/test".to_string(),
+            is_git_repo: false,
+            model_name: "test-model".to_string(),
+            date: "2026-01-01".to_string(),
+        };
+
+        let prompt = SystemPromptBuilder::build_default(&[], &env, None, None);
+        assert!(
+            !prompt.is_empty(),
+            "build_default should produce non-empty output"
+        );
+        assert!(
+            prompt.len() > 1000,
+            "build_default should produce substantial output, got {} chars",
+            prompt.len()
+        );
+        // Core identity must be present.
+        assert!(prompt.contains("Claude Code"));
+        // Environment section must be present.
+        assert!(prompt.contains("test-platform"));
+    }
+
+    #[test]
+    fn test_environment_info_detect() {
+        // Verify EnvironmentInfo::detect fills all fields with reasonable values.
+        let env = EnvironmentInfo::detect("claude-sonnet-4-20250514");
+
+        // Platform must be one of the known values.
+        assert!(
+            ["win32", "darwin", "linux"].contains(&env.platform.as_str()),
+            "platform should be win32, darwin, or linux, got: {}",
+            env.platform
+        );
+
+        // Shell should be a recognizable shell name.
+        assert!(!env.shell.is_empty(), "shell should not be empty");
+
+        // OS version should be populated.
+        assert!(!env.os_version.is_empty(), "os_version should not be empty");
+
+        // Working directory should be an absolute-ish path.
+        assert!(
+            !env.working_directory.is_empty(),
+            "working_directory should not be empty"
+        );
+
+        // Date should look like YYYY-MM-DD.
+        assert_eq!(
+            env.date.len(),
+            10,
+            "date should be 10 chars (YYYY-MM-DD), got: {}",
+            env.date
+        );
+        assert!(
+            env.date.chars().nth(4) == Some('-'),
+            "date should have dash at position 4"
+        );
+
+        // Model name should match what we passed in.
+        assert_eq!(env.model_name, "claude-sonnet-4-20250514");
+    }
 }

@@ -82,3 +82,59 @@ impl Tool for FileWriteTool {
         )))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cc_permissions::{PermissionContext, PermissionMode};
+    use tempfile::TempDir;
+
+    fn make_ctx(dir: &TempDir) -> ToolContext {
+        ToolContext {
+            working_directory: dir.path().to_path_buf(),
+            permission_context: PermissionContext::new(PermissionMode::Bypass, vec![]),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_write_new_file() {
+        let tmp = TempDir::new().unwrap();
+        let file_path = tmp.path().join("output.txt");
+
+        let tool = FileWriteTool;
+        let ctx = make_ctx(&tmp);
+        let input = serde_json::json!({
+            "file_path": file_path.to_str().unwrap(),
+            "content": "hello world\nsecond line"
+        });
+
+        let output = tool.call(input, &ctx).await.unwrap();
+        assert!(!output.is_error);
+        assert!(output.content.contains("Wrote 2 lines"));
+
+        // Verify the file was actually created with the correct content.
+        let written = std::fs::read_to_string(&file_path).unwrap();
+        assert_eq!(written, "hello world\nsecond line");
+    }
+
+    #[tokio::test]
+    async fn test_write_creates_directories() {
+        let tmp = TempDir::new().unwrap();
+        let file_path = tmp.path().join("a").join("b").join("c").join("deep.txt");
+
+        let tool = FileWriteTool;
+        let ctx = make_ctx(&tmp);
+        let input = serde_json::json!({
+            "file_path": file_path.to_str().unwrap(),
+            "content": "nested content"
+        });
+
+        let output = tool.call(input, &ctx).await.unwrap();
+        assert!(!output.is_error);
+
+        // Verify parent directories were created and file exists.
+        assert!(file_path.exists());
+        let written = std::fs::read_to_string(&file_path).unwrap();
+        assert_eq!(written, "nested content");
+    }
+}

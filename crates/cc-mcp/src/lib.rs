@@ -307,4 +307,85 @@ mod tests {
         assert!(mgr.get_all_tools().is_empty());
         assert!(mgr.get_all_resources().is_empty());
     }
+
+    #[test]
+    fn test_protocol_request_serialization() {
+        let req = JsonRpcRequest::new(42, "tools/call", Some(serde_json::json!({"name": "bash"})));
+        let json_str = serde_json::to_string(&req).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+
+        assert_eq!(value["jsonrpc"], "2.0");
+        assert_eq!(value["id"], 42);
+        assert_eq!(value["method"], "tools/call");
+        assert_eq!(value["params"]["name"], "bash");
+
+        // Verify that a request without params omits the field.
+        let req_no_params = JsonRpcRequest::new(1, "resources/list", None);
+        let json_no_params = serde_json::to_string(&req_no_params).unwrap();
+        let val: serde_json::Value = serde_json::from_str(&json_no_params).unwrap();
+        assert!(val.get("params").is_none());
+    }
+
+    #[test]
+    fn test_protocol_response_parsing() {
+        // Parse a successful response.
+        let json = r#"{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}"#;
+        let resp: JsonRpcResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.jsonrpc, "2.0");
+        assert_eq!(resp.id, 1);
+        assert!(!resp.is_error());
+        assert!(resp.result.is_some());
+        assert!(resp.error.is_none());
+
+        // Parse an error response.
+        let err_json = r#"{"jsonrpc":"2.0","id":2,"error":{"code":-32601,"message":"Method not found"}}"#;
+        let err_resp: JsonRpcResponse = serde_json::from_str(err_json).unwrap();
+        assert_eq!(err_resp.id, 2);
+        assert!(err_resp.is_error());
+        assert!(err_resp.result.is_none());
+        let err = err_resp.error.unwrap();
+        assert_eq!(err.code, -32601);
+        assert_eq!(err.message, "Method not found");
+    }
+
+    #[test]
+    fn test_manager_no_connections() {
+        let mgr = McpConnectionManager::new();
+        assert!(mgr.list_connections().is_empty());
+        assert!(mgr.get_all_tools().is_empty());
+        assert!(mgr.get_all_resources().is_empty());
+        assert!(mgr.get_capabilities("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_permissions_allow_all() {
+        let perms = McpPermissions::allow_all();
+        // An allow-all config should let any server through.
+        assert!(perms.check_server("any-server"));
+        assert!(perms.check_server("another-server"));
+        assert!(perms.check_server(""));
+        // Tools should default to Ask when no explicit rule exists.
+        assert_eq!(
+            perms.check_tool("any-server", "any-tool"),
+            ToolPermission::Ask
+        );
+    }
+
+    #[test]
+    fn test_permissions_deny_server() {
+        let perms = McpPermissions {
+            denied_servers: vec!["blocked-server".into()],
+            ..Default::default()
+        };
+        assert!(!perms.check_server("blocked-server"));
+        assert!(perms.check_server("allowed-server"));
+
+        // Deny takes precedence even if also in allowed list.
+        let perms2 = McpPermissions {
+            allowed_servers: vec!["dual".into()],
+            denied_servers: vec!["dual".into()],
+            ..Default::default()
+        };
+        assert!(!perms2.check_server("dual"));
+    }
 }

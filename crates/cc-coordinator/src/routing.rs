@@ -147,4 +147,63 @@ mod tests {
         let tools = router.allowed_tools_for_worker("nonexistent");
         assert_eq!(tools, vec!["read".to_string()]);
     }
+
+    #[test]
+    fn test_routing_default_tools() {
+        let mut router = PermissionRouter::new();
+
+        // Register the three standard default tools.
+        router.add_default_tool("file_read".to_string());
+        router.add_default_tool("grep".to_string());
+        router.add_default_tool("glob".to_string());
+
+        assert_eq!(router.default_tools().len(), 3);
+
+        // Every worker (even unregistered ones) should have access to defaults.
+        for worker_id in &["w1", "w2", "unknown"] {
+            assert!(router.can_use_tool(worker_id, "file_read"));
+            assert!(router.can_use_tool(worker_id, "grep"));
+            assert!(router.can_use_tool(worker_id, "glob"));
+            // But not a tool that is not in defaults.
+            assert!(!router.can_use_tool(worker_id, "bash"));
+        }
+
+        // allowed_tools_for_worker should include all defaults.
+        let tools = router.allowed_tools_for_worker("any-worker");
+        assert!(tools.contains(&"file_read".to_string()));
+        assert!(tools.contains(&"grep".to_string()));
+        assert!(tools.contains(&"glob".to_string()));
+    }
+
+    #[test]
+    fn test_routing_custom_tools() {
+        let mut router = PermissionRouter::new();
+        router.add_default_tool("file_read".to_string());
+
+        // Give worker-a custom tools.
+        router.set_worker_tools(
+            "worker-a",
+            vec!["bash".to_string(), "edit".to_string()],
+        );
+
+        // worker-a should have defaults + custom tools.
+        assert!(router.can_use_tool("worker-a", "file_read"));
+        assert!(router.can_use_tool("worker-a", "bash"));
+        assert!(router.can_use_tool("worker-a", "edit"));
+        assert!(!router.can_use_tool("worker-a", "admin"));
+
+        let tools = router.allowed_tools_for_worker("worker-a");
+        assert_eq!(tools.len(), 3); // file_read + bash + edit
+
+        // worker-b has no custom tools, only defaults.
+        assert!(router.can_use_tool("worker-b", "file_read"));
+        assert!(!router.can_use_tool("worker-b", "bash"));
+        assert!(!router.can_use_tool("worker-b", "edit"));
+
+        // Updating worker-a's tools replaces the old list.
+        router.set_worker_tools("worker-a", vec!["admin".to_string()]);
+        assert!(router.can_use_tool("worker-a", "admin"));
+        assert!(!router.can_use_tool("worker-a", "bash")); // bash no longer allowed
+        assert!(router.can_use_tool("worker-a", "file_read")); // defaults still work
+    }
 }

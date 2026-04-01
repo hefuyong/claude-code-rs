@@ -127,4 +127,17 @@ mod tests {
         assert_eq!(loaded.trust_token, Some("tok_test".into()));
         assert!(loaded.is_trusted());
     }
+
+    #[test]
+    fn test_device_id_deterministic() {
+        // Two DeviceTrust instances created on the same machine should
+        // produce the same device_id since it is derived from
+        // hostname + salt.
+        let d1 = DeviceTrust::new();
+        let d2 = DeviceTrust::new();
+        assert_eq!(d1.device_id, d2.device_id);
+        // The device ID should be a hex-encoded SHA-256 hash (64 chars).
+        assert_eq!(d1.device_id.len(), 64);
+        assert!(d1.device_id.chars().all(|c| c.is_ascii_hexdigit()));
+    }
 }

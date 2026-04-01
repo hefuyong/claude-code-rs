@@ -618,4 +618,53 @@ mod tests {
             all_prompts.len()
         );
     }
+
+    #[test]
+    fn test_all_tool_names_have_prompts() {
+        // Every recognized tool name (both PascalCase and snake_case forms)
+        // should return a non-empty prompt that is NOT the unknown fallback.
+        let tool_names = [
+            // PascalCase names
+            "Read", "Write", "Edit", "Glob", "Grep", "Bash",
+            "WebSearch", "WebFetch",
+            "GitStatus", "GitDiff", "GitLog", "GitCommit", "GitPush",
+            "GitBranch", "GitCheckout",
+            "GhPrCreate", "GhPrView", "GhIssueView",
+            "TaskCreate", "TaskUpdate", "TaskList", "TaskGet",
+            "Agent", "NotebookEdit",
+            "EnterWorktree", "ExitWorktree",
+            "CronCreate", "CronDelete", "CronList",
+            "Skill", "MemoryRead", "MemoryWrite", "McpTool",
+            "MultiEdit", "PermissionRequest", "Diagnostics",
+            "ListDir", "TodoWrite",
+            // snake_case / lowercase aliases
+            "read", "write", "edit", "glob", "grep", "bash",
+            "file_read", "file_write", "file_edit", "file_glob", "file_grep",
+            "shell", "web_search", "web_fetch",
+            "sub_agent", "agent",
+            "git_status", "git_diff", "git_log", "git_commit", "git_push",
+            "git_branch", "git_checkout",
+            "gh_pr_create", "gh_pr_view", "gh_issue_view",
+            "task_create", "task_update", "task_list", "task_get",
+            "notebook_edit", "enter_worktree", "exit_worktree",
+            "cron_create", "cron_delete", "cron_list",
+            "skill", "memory_read", "memory_write", "mcp_tool",
+            "multi_edit", "permission_request", "diagnostics",
+            "list_dir", "todo_write",
+        ];
+
+        for name in &tool_names {
+            let prompt = get_tool_prompt(name);
+            assert!(
+                !prompt.is_empty(),
+                "Tool '{}' returned empty prompt",
+                name
+            );
+            assert_ne!(
+                prompt, UNKNOWN_TOOL,
+                "Tool '{}' returned the unknown-tool fallback",
+                name
+            );
+        }
+    }
 }

@@ -104,3 +104,175 @@ pub fn simplify_stream(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{ContentBlock, Usage};
+    use tokio_stream::StreamExt;
+
+    #[tokio::test]
+    async fn test_simplify_text_output() {
+        let events: Vec<CcResult<StreamEvent>> = vec![
+            Ok(StreamEvent::MessageStart {
+                id: "msg_1".into(),
+                model: "claude-sonnet-4-20250514".into(),
+                usage: Usage {
+                    input_tokens: 10,
+                    output_tokens: 0,
+                    ..Default::default()
+                },
+            }),
+            Ok(StreamEvent::ContentBlockStart {
+                index: 0,
+                content_block: ContentBlock::Text {
+                    text: String::new(),
+                },
+            }),
+            Ok(StreamEvent::ContentBlockDelta {
+                index: 0,
+                delta: Delta::TextDelta {
+                    text: "Hello ".into(),
+                },
+            }),
+            Ok(StreamEvent::ContentBlockDelta {
+                index: 0,
+                delta: Delta::TextDelta {
+                    text: "world".into(),
+                },
+            }),
+            Ok(StreamEvent::ContentBlockStop { index: 0 }),
+            Ok(StreamEvent::MessageDelta {
+                stop_reason: Some("end_turn".into()),
+                usage: Usage {
+                    input_tokens: 0,
+                    output_tokens: 5,
+                    ..Default::default()
+                },
+            }),
+            Ok(StreamEvent::MessageStop),
+        ];
+
+        let raw = tokio_stream::iter(events);
+        let simplified = simplify_stream(raw);
+        tokio::pin!(simplified);
+
+        let mut texts = Vec::new();
+        let mut done_seen = false;
+
+        while let Some(event) = simplified.next().await {
+            match event {
+                StreamOutput::Text(t) => texts.push(t),
+                StreamOutput::Done { stop_reason, input_tokens, output_tokens } => {
+                    assert_eq!(stop_reason.as_deref(), Some("end_turn"));
+                    assert_eq!(input_tokens, 10);
+                    assert_eq!(output_tokens, 5);
+                    done_seen = true;
+                }
+                _ => {}
+            }
+        }
+
+        assert_eq!(texts, vec!["Hello ", "world"]);
+        assert!(done_seen, "should have received Done event");
+    }
+
+    #[tokio::test]
+    async fn test_simplify_tool_use() {
+        let events: Vec<CcResult<StreamEvent>> = vec![
+            Ok(StreamEvent::MessageStart {
+                id: "msg_2".into(),
+                model: "claude-sonnet-4-20250514".into(),
+                usage: Usage::default(),
+            }),
+            Ok(StreamEvent::ContentBlockStart {
+                index: 0,
+                content_block: ContentBlock::ToolUse {
+                    id: "toolu_123".into(),
+                    name: "Bash".into(),
+                    input: serde_json::json!({}),
+                },
+            }),
+            Ok(StreamEvent::ContentBlockDelta {
+                index: 0,
+                delta: Delta::InputJsonDelta {
+                    partial_json: "{\"command\":".into(),
+                },
+            }),
+            Ok(StreamEvent::ContentBlockDelta {
+                index: 0,
+                delta: Delta::InputJsonDelta {
+                    partial_json: "\"ls -la\"}".into(),
+                },
+            }),
+            Ok(StreamEvent::ContentBlockStop { index: 0 }),
+            Ok(StreamEvent::MessageDelta {
+                stop_reason: Some("tool_use".into()),
+                usage: Usage {
+                    input_tokens: 0,
+                    output_tokens: 20,
+                    ..Default::default()
+                },
+            }),
+            Ok(StreamEvent::MessageStop),
+        ];
+
+        let raw = tokio_stream::iter(events);
+        let simplified = simplify_stream(raw);
+        tokio::pin!(simplified);
+
+        let mut tool_use_seen = false;
+
+        while let Some(event) = simplified.next().await {
+            if let StreamOutput::ToolUse { id, name, input } = event {
+                assert_eq!(id, "toolu_123");
+                assert_eq!(name, "Bash");
+                assert_eq!(input["command"], "ls -la");
+                tool_use_seen = true;
+            }
+        }
+
+        assert!(tool_use_seen, "should have received ToolUse event");
+    }
+
+    #[tokio::test]
+    async fn test_simplify_done() {
+        let events: Vec<CcResult<StreamEvent>> = vec![
+            Ok(StreamEvent::MessageStart {
+                id: "msg_3".into(),
+                model: "claude-sonnet-4-20250514".into(),
+                usage: Usage {
+                    input_tokens: 50,
+                    output_tokens: 0,
+                    ..Default::default()
+                },
+            }),
+            Ok(StreamEvent::MessageDelta {
+                stop_reason: Some("end_turn".into()),
+                usage: Usage {
+                    input_tokens: 0,
+                    output_tokens: 30,
+                    ..Default::default()
+                },
+            }),
+            Ok(StreamEvent::MessageStop),
+        ];
+
+        let raw = tokio_stream::iter(events);
+        let simplified = simplify_stream(raw);
+        tokio::pin!(simplified);
+
+        let mut done_event = None;
+
+        while let Some(event) = simplified.next().await {
+            if let StreamOutput::Done { stop_reason, input_tokens, output_tokens } = event {
+                done_event = Some((stop_reason, input_tokens, output_tokens));
+            }
+        }
+
+        let (stop_reason, input_tokens, output_tokens) = done_event.expect("should have Done");
+        assert_eq!(stop_reason.as_deref(), Some("end_turn"));
+        assert_eq!(input_tokens, 50);
+        assert_eq!(output_tokens, 30);
+    }
+}

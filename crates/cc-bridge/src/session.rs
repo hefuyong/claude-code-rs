@@ -187,4 +187,35 @@ mod tests {
         let mut session = BridgeSession::new();
         assert!(session.disconnect().await.is_ok());
     }
+
+    #[test]
+    fn test_session_status_transitions() {
+        let mut session = BridgeSession::new();
+
+        // Starts as Disconnected.
+        assert_eq!(session.status, SessionStatus::Disconnected);
+        assert!(!session.is_connected());
+
+        // Simulate Connecting transition.
+        session.status = SessionStatus::Connecting;
+        assert_eq!(*session.status(), SessionStatus::Connecting);
+        assert!(!session.is_connected()); // no ws_connection, so still false
+
+        // Simulate Connected transition.
+        session.status = SessionStatus::Connected;
+        assert_eq!(*session.status(), SessionStatus::Connected);
+        // is_connected() requires both status == Connected AND ws_connection.is_some(),
+        // so without an actual WebSocket it should still be false.
+        assert!(!session.is_connected());
+
+        // Simulate Reconnecting transition.
+        session.status = SessionStatus::Reconnecting;
+        assert_eq!(*session.status(), SessionStatus::Reconnecting);
+        assert!(!session.is_connected());
+
+        // Back to Disconnected.
+        session.status = SessionStatus::Disconnected;
+        assert_eq!(*session.status(), SessionStatus::Disconnected);
+        assert!(!session.is_connected());
+    }
 }

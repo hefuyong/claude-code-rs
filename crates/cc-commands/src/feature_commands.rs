@@ -1,6 +1,35 @@
 //! Feature toggle and mode commands.
 
 use crate::{Command, CommandContext, CommandOutput, CommandRegistry};
+use std::collections::HashMap;
+use std::process::Stdio;
+
+/// Run a shell command and capture stdout+stderr.
+async fn run_cmd(program: &str, args: &[&str], cwd: &std::path::Path) -> String {
+    match tokio::process::Command::new(program)
+        .args(args)
+        .current_dir(cwd)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+    {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if output.status.success() {
+                if stdout.is_empty() {
+                    "(no output)".to_string()
+                } else {
+                    stdout.trim().to_string()
+                }
+            } else {
+                format!("Error (exit {}):\n{}{}", output.status, stdout, stderr)
+            }
+        }
+        Err(e) => format!("Failed to run '{program}': {e}"),
+    }
+}
 
 /// Register feature commands.
 pub fn register_feature_commands(registry: &mut CommandRegistry) {
@@ -15,18 +44,98 @@ pub fn register_feature_commands(registry: &mut CommandRegistry) {
             let model = ctx.model.clone();
             let turns = ctx.total_turns;
             let cost = ctx.total_cost.clone();
+            let dir = ctx.working_dir.clone();
             Box::pin(async move {
-                Ok(CommandOutput::text(format!(
-                    "Context Information\n\
-                     ===================\n\
-                     Model:          {model}\n\
-                     Turns used:     {turns}\n\
-                     Cost so far:    {cost}\n\
-                     Context window: 200k tokens (estimated)\n\
-                     Usage:          ~{pct}%\n\n\
-                     Tip: use /compact to reduce context usage.",
-                    pct = (turns * 3).min(100),
-                )))
+                let mut lines = vec![
+                    "Context Information".to_string(),
+                    "===================".to_string(),
+                    String::new(),
+                ];
+
+                // Working directory
+                lines.push(format!("Working dir:    {}", dir.display()));
+
+                // Git branch
+                let branch = run_cmd("git", &["branch", "--show-current"], &dir).await;
+                if !branch.starts_with("Error") && !branch.starts_with("Failed") {
+                    lines.push(format!("Git branch:     {branch}"));
+
+                    // Git status summary
+                    let status = run_cmd("git", &["status", "--porcelain"], &dir).await;
+                    if !status.starts_with("Error") && status != "(no output)" {
+                        let modified = status.lines().filter(|l| l.starts_with(" M") || l.starts_with("M ")).count();
+                        let added = status.lines().filter(|l| l.starts_with("A ") || l.starts_with("??")).count();
+                        let deleted = status.lines().filter(|l| l.starts_with(" D") || l.starts_with("D ")).count();
+                        lines.push(format!("Git status:     {modified} modified, {added} new, {deleted} deleted"));
+                    } else {
+                        lines.push("Git status:     clean".into());
+                    }
+                } else {
+                    lines.push("Git:            (not a git repository)".into());
+                }
+
+                // File count
+                let file_count = run_cmd("git", &["ls-files"], &dir).await;
+                if !file_count.starts_with("Error") && !file_count.starts_with("Failed") && file_count != "(no output)" {
+                    let count = file_count.lines().count();
+                    lines.push(format!("Tracked files:  {count}"));
+                }
+
+                lines.push(String::new());
+
+                // Model and session info
+                lines.push(format!("Model:          {model}"));
+                lines.push(format!("Turns used:     {turns}"));
+                lines.push(format!("Cost so far:    {cost}"));
+
+                // Context window estimation
+                let context_window: u64 = if model.contains("opus") {
+                    200_000
+                } else if model.contains("sonnet") {
+                    200_000
+                } else if model.contains("haiku") {
+                    200_000
+                } else {
+                    200_000
+                };
+                let est_tokens = turns * 2300; // rough average per turn
+                let pct = if context_window > 0 {
+                    ((est_tokens as f64 / context_window as f64) * 100.0).min(100.0)
+                } else {
+                    0.0
+                };
+                lines.push(format!("Context window: {context_window} tokens"));
+                lines.push(format!("Est. usage:     ~{est_tokens} tokens (~{pct:.1}%)"));
+
+                lines.push(String::new());
+
+                // Memory files
+                let memory_files = [
+                    dir.join("CLAUDE.md"),
+                    dir.join(".claude").join("memory.md"),
+                    dir.join(".claude").join("CLAUDE.md"),
+                ];
+                let mut found_memory = false;
+                for mf in &memory_files {
+                    if mf.exists() {
+                        if !found_memory {
+                            lines.push("Memory files:".into());
+                            found_memory = true;
+                        }
+                        let size = tokio::fs::metadata(mf).await
+                            .map(|m| m.len())
+                            .unwrap_or(0);
+                        lines.push(format!("  {} ({} bytes)", mf.display(), size));
+                    }
+                }
+                if !found_memory {
+                    lines.push("Memory files:   (none found)".into());
+                }
+
+                lines.push(String::new());
+                lines.push("Tip: use /compact to reduce context usage.".into());
+
+                Ok(CommandOutput::text(lines.join("\n")))
             })
         }),
     );
@@ -40,15 +149,43 @@ pub fn register_feature_commands(registry: &mut CommandRegistry) {
         },
         Box::new(|_args: &str, ctx: &mut CommandContext| {
             let turns = ctx.total_turns;
+            let cost = ctx.total_cost.clone();
+            let model = ctx.model.clone();
             Box::pin(async move {
-                Ok(CommandOutput::text(format!(
-                    "Conversation Summary\n\
-                     ====================\n\
-                     Total turns: {turns}\n\
-                     Topics discussed: (analysis requires Claude)\n\n\
-                     Tip: ask Claude \"Summarize our conversation so far\" for a \
-                     detailed summary."
-                )))
+                let est_input = turns * 1500;
+                let est_output = turns * 800;
+                let est_total = est_input + est_output;
+
+                // Calculate rough pricing
+                let input_cost = est_input as f64 * 0.003 / 1000.0;
+                let output_cost = est_output as f64 * 0.015 / 1000.0;
+
+                let lines = vec![
+                    "Conversation Summary".to_string(),
+                    "====================".to_string(),
+                    String::new(),
+                    format!("Model:            {model}"),
+                    format!("Total turns:      {turns}"),
+                    format!("  User messages:  ~{}", turns / 2 + turns % 2),
+                    format!("  Asst messages:  ~{}", turns / 2),
+                    String::new(),
+                    "Token Estimates".to_string(),
+                    "---------------".to_string(),
+                    format!("  Input tokens:   ~{est_input}"),
+                    format!("  Output tokens:  ~{est_output}"),
+                    format!("  Total tokens:   ~{est_total}"),
+                    String::new(),
+                    "Cost Breakdown".to_string(),
+                    "--------------".to_string(),
+                    format!("  Input cost:     ~${input_cost:.4}"),
+                    format!("  Output cost:    ~${output_cost:.4}"),
+                    format!("  Reported total: {cost}"),
+                    String::new(),
+                    "Tip: ask Claude \"Summarize our conversation so far\" for a".into(),
+                    "content-based summary.".into(),
+                ];
+
+                Ok(CommandOutput::text(lines.join("\n")))
             })
         }),
     );
@@ -226,15 +363,67 @@ pub fn register_feature_commands(registry: &mut CommandRegistry) {
                 match tokio::process::Command::new("git")
                     .args(["ls-files"])
                     .current_dir(&dir)
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
                     .output()
                     .await
                 {
                     Ok(output) => {
+                        if !output.status.success() {
+                            return Ok(CommandOutput::text(
+                                "Not a git repository, or git is not installed.",
+                            ));
+                        }
                         let files = String::from_utf8_lossy(&output.stdout);
-                        let count = files.lines().count();
-                        Ok(CommandOutput::text(format!(
-                            "Tracked files ({count}):\n{files}"
-                        )))
+                        let total_count = files.lines().count();
+
+                        // Count files by extension
+                        let mut ext_counts: HashMap<String, usize> = HashMap::new();
+                        for line in files.lines() {
+                            let ext = std::path::Path::new(line)
+                                .extension()
+                                .and_then(|e| e.to_str())
+                                .unwrap_or("(no ext)");
+                            *ext_counts.entry(ext.to_string()).or_insert(0) += 1;
+                        }
+
+                        // Sort by count descending
+                        let mut ext_vec: Vec<(String, usize)> = ext_counts.into_iter().collect();
+                        ext_vec.sort_by(|a, b| b.1.cmp(&a.1));
+
+                        let mut lines = vec![
+                            format!("Tracked Files ({total_count} total)"),
+                            "=".repeat(35),
+                            String::new(),
+                            "By extension:".to_string(),
+                        ];
+
+                        for (ext, count) in &ext_vec {
+                            let pct = (*count as f64 / total_count as f64 * 100.0) as u32;
+                            lines.push(format!("  .{ext:<12} {count:>5} ({pct}%)"));
+                        }
+
+                        // Show top-level directory breakdown
+                        let mut dir_counts: HashMap<String, usize> = HashMap::new();
+                        for line in files.lines() {
+                            let top = line.split('/').next().unwrap_or(".");
+                            // Only count if it looks like a directory (file has a slash)
+                            if line.contains('/') {
+                                *dir_counts.entry(top.to_string()).or_insert(0) += 1;
+                            } else {
+                                *dir_counts.entry("(root)".to_string()).or_insert(0) += 1;
+                            }
+                        }
+                        let mut dir_vec: Vec<(String, usize)> = dir_counts.into_iter().collect();
+                        dir_vec.sort_by(|a, b| b.1.cmp(&a.1));
+
+                        lines.push(String::new());
+                        lines.push("By directory:".to_string());
+                        for (d, count) in &dir_vec {
+                            lines.push(format!("  {d:<16} {count:>5}"));
+                        }
+
+                        Ok(CommandOutput::text(lines.join("\n")))
                     }
                     Err(_) => Ok(CommandOutput::text(
                         "Not a git repository, or git is not installed.",
@@ -256,22 +445,78 @@ pub fn register_feature_commands(registry: &mut CommandRegistry) {
             let args = args.trim().to_string();
             Box::pin(async move {
                 if args.is_empty() {
-                    return Ok(CommandOutput::text("Usage: /search <pattern>"));
+                    return Ok(CommandOutput::text(
+                        "Usage: /search <pattern>\n\
+                         Options:\n\
+                         /search <pattern>           - search all files\n\
+                         /search -i <pattern>        - case-insensitive\n\
+                         /search <pattern> -- *.rs   - search only .rs files"
+                    ));
                 }
+
+                // Parse arguments: support -i flag and -- file pattern
+                let parts: Vec<&str> = args.splitn(2, " -- ").collect();
+                let (search_part, file_pattern) = if parts.len() == 2 {
+                    (parts[0].trim(), Some(parts[1].trim()))
+                } else {
+                    (args.as_str(), None)
+                };
+
+                let mut git_args = vec!["grep", "-n", "--color=never"];
+
+                let pattern;
+                if search_part.starts_with("-i ") {
+                    git_args.push("-i");
+                    pattern = search_part[3..].trim().to_string();
+                } else {
+                    pattern = search_part.to_string();
+                };
+                git_args.push(&pattern);
+
+                if let Some(fp) = file_pattern {
+                    git_args.push("--");
+                    git_args.push(fp);
+                }
+
                 match tokio::process::Command::new("git")
-                    .args(["grep", "-n", &args])
+                    .args(&git_args)
                     .current_dir(&dir)
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
                     .output()
                     .await
                 {
                     Ok(output) => {
                         let text = String::from_utf8_lossy(&output.stdout);
                         if text.is_empty() {
-                            Ok(CommandOutput::text(format!("No matches for '{args}'")))
+                            Ok(CommandOutput::text(format!("No matches for '{pattern}'")))
                         } else {
-                            let count = text.lines().count();
+                            let all_lines: Vec<&str> = text.lines().collect();
+                            let count = all_lines.len();
+
+                            // Group by file
+                            let mut file_matches: HashMap<&str, Vec<&str>> = HashMap::new();
+                            for line in &all_lines {
+                                if let Some(colon_pos) = line.find(':') {
+                                    let file = &line[..colon_pos];
+                                    file_matches.entry(file).or_default().push(line);
+                                }
+                            }
+                            let file_count = file_matches.len();
+
+                            // Show results (cap at 50 lines)
+                            let display_lines = if count > 50 {
+                                let truncated: String = all_lines[..50].join("\n");
+                                format!(
+                                    "{truncated}\n\n... and {} more match(es)",
+                                    count - 50
+                                )
+                            } else {
+                                text.trim().to_string()
+                            };
+
                             Ok(CommandOutput::text(format!(
-                                "Found {count} match(es) for '{args}':\n{text}"
+                                "Found {count} match(es) in {file_count} file(s) for '{pattern}':\n\n{display_lines}"
                             )))
                         }
                     }

@@ -104,3 +104,78 @@ impl Tool for FileEditTool {
         )))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cc_permissions::{PermissionContext, PermissionMode};
+    use tempfile::TempDir;
+
+    fn make_ctx(dir: &TempDir) -> ToolContext {
+        ToolContext {
+            working_directory: dir.path().to_path_buf(),
+            permission_context: PermissionContext::new(PermissionMode::Bypass, vec![]),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_edit_replace_string() {
+        let tmp = TempDir::new().unwrap();
+        let file_path = tmp.path().join("edit_me.txt");
+        std::fs::write(&file_path, "Hello World\nFoo Bar\n").unwrap();
+
+        let tool = FileEditTool;
+        let ctx = make_ctx(&tmp);
+        let input = serde_json::json!({
+            "file_path": file_path.to_str().unwrap(),
+            "old_string": "Foo Bar",
+            "new_string": "Baz Qux"
+        });
+
+        let output = tool.call(input, &ctx).await.unwrap();
+        assert!(!output.is_error);
+        assert!(output.content.contains("Successfully edited"));
+
+        let result = std::fs::read_to_string(&file_path).unwrap();
+        assert!(result.contains("Baz Qux"));
+        assert!(!result.contains("Foo Bar"));
+    }
+
+    #[tokio::test]
+    async fn test_edit_string_not_found() {
+        let tmp = TempDir::new().unwrap();
+        let file_path = tmp.path().join("no_match.txt");
+        std::fs::write(&file_path, "some content here\n").unwrap();
+
+        let tool = FileEditTool;
+        let ctx = make_ctx(&tmp);
+        let input = serde_json::json!({
+            "file_path": file_path.to_str().unwrap(),
+            "old_string": "does not exist",
+            "new_string": "replacement"
+        });
+
+        let output = tool.call(input, &ctx).await.unwrap();
+        assert!(output.is_error);
+        assert!(output.content.contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_edit_ambiguous_match() {
+        let tmp = TempDir::new().unwrap();
+        let file_path = tmp.path().join("ambiguous.txt");
+        std::fs::write(&file_path, "hello\nhello\nhello\n").unwrap();
+
+        let tool = FileEditTool;
+        let ctx = make_ctx(&tmp);
+        let input = serde_json::json!({
+            "file_path": file_path.to_str().unwrap(),
+            "old_string": "hello",
+            "new_string": "world"
+        });
+
+        let output = tool.call(input, &ctx).await.unwrap();
+        assert!(output.is_error);
+        assert!(output.content.contains("3 times"));
+    }
+}

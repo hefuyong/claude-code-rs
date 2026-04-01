@@ -177,4 +177,46 @@ mod tests {
         drop(receiver);
         assert!(queue.is_closed());
     }
+
+    #[test]
+    fn test_message_serialize_roundtrip() {
+        // Test all message variants survive a serialize/deserialize cycle.
+        let messages = vec![
+            BridgeMessage::UserInput {
+                text: "Hello, world!".into(),
+                session_id: "sess-abc".into(),
+            },
+            BridgeMessage::AssistantOutput {
+                text: "Hi there".into(),
+                session_id: "sess-abc".into(),
+            },
+            BridgeMessage::ToolUse {
+                tool_name: "bash".into(),
+                input: serde_json::json!({"command": "ls"}),
+                session_id: "sess-abc".into(),
+            },
+            BridgeMessage::ToolResult {
+                output: "file.txt".into(),
+                is_error: false,
+                session_id: "sess-abc".into(),
+            },
+            BridgeMessage::SessionStart {
+                session_id: "sess-new".into(),
+            },
+            BridgeMessage::SessionEnd {
+                session_id: "sess-done".into(),
+            },
+            BridgeMessage::Heartbeat,
+            BridgeMessage::Error {
+                code: "E500".into(),
+                message: "internal error".into(),
+            },
+        ];
+
+        for original in &messages {
+            let json = original.serialize().unwrap();
+            let decoded = BridgeMessage::deserialize(&json).unwrap();
+            assert_eq!(*original, decoded, "roundtrip failed for {json}");
+        }
+    }
 }

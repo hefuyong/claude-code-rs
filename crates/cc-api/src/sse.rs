@@ -48,7 +48,7 @@ pub fn parse_sse_stream(
 }
 
 /// Parse a single SSE message block into a StreamEvent.
-fn parse_sse_message(message: &str) -> Option<CcResult<StreamEvent>> {
+pub(crate) fn parse_sse_message(message: &str) -> Option<CcResult<StreamEvent>> {
     let mut event_type = String::new();
     let mut data = String::new();
 
@@ -142,4 +142,129 @@ fn parse_event(event_type: &str, data: &str) -> CcResult<StreamEvent> {
 
 fn sse_parse_err(e: impl std::fmt::Display, data: &str) -> CcError {
     CcError::Serialization(format!("SSE parse error: {e}, data: {}", &data[..data.len().min(200)]))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_text_delta() {
+        let msg = "event: content_block_delta\n\
+                   data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello world\"}}";
+        let result = parse_sse_message(msg);
+        assert!(result.is_some());
+        let event = result.unwrap().unwrap();
+        match event {
+            StreamEvent::ContentBlockDelta { index, delta } => {
+                assert_eq!(index, 0);
+                match delta {
+                    Delta::TextDelta { text } => assert_eq!(text, "Hello world"),
+                    other => panic!("expected TextDelta, got {:?}", other),
+                }
+            }
+            other => panic!("expected ContentBlockDelta, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_message_start() {
+        let msg = "event: message_start\n\
+                   data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_123\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-sonnet-4-20250514\",\"usage\":{\"input_tokens\":100,\"output_tokens\":0}}}";
+        let result = parse_sse_message(msg);
+        assert!(result.is_some());
+        let event = result.unwrap().unwrap();
+        match event {
+            StreamEvent::MessageStart { id, model, usage } => {
+                assert_eq!(id, "msg_123");
+                assert_eq!(model, "claude-sonnet-4-20250514");
+                assert_eq!(usage.input_tokens, 100);
+                assert_eq!(usage.output_tokens, 0);
+            }
+            other => panic!("expected MessageStart, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_message_stop() {
+        let msg = "event: message_stop\ndata: {}";
+        let result = parse_sse_message(msg);
+        assert!(result.is_some());
+        let event = result.unwrap().unwrap();
+        assert!(matches!(event, StreamEvent::MessageStop));
+    }
+
+    #[test]
+    fn test_parse_tool_use_block() {
+        let msg = "event: content_block_start\n\
+                   data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_abc\",\"name\":\"Bash\",\"input\":{}}}";
+        let result = parse_sse_message(msg);
+        assert!(result.is_some());
+        let event = result.unwrap().unwrap();
+        match event {
+            StreamEvent::ContentBlockStart { index, content_block } => {
+                assert_eq!(index, 1);
+                match content_block {
+                    ContentBlock::ToolUse { id, name, .. } => {
+                        assert_eq!(id, "toolu_abc");
+                        assert_eq!(name, "Bash");
+                    }
+                    other => panic!("expected ToolUse block, got {:?}", other),
+                }
+            }
+            other => panic!("expected ContentBlockStart, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_error_event() {
+        let msg = "event: error\n\
+                   data: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Server is overloaded\"}}";
+        let result = parse_sse_message(msg);
+        assert!(result.is_some());
+        let event = result.unwrap().unwrap();
+        match event {
+            StreamEvent::Error { error_type, message } => {
+                assert_eq!(error_type, "overloaded_error");
+                assert_eq!(message, "Server is overloaded");
+            }
+            other => panic!("expected Error event, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_unknown_event() {
+        let msg = "event: some_future_event\ndata: {\"foo\":\"bar\"}";
+        let result = parse_sse_message(msg);
+        assert!(result.is_some());
+        let event = result.unwrap().unwrap();
+        assert!(matches!(event, StreamEvent::Ping));
+    }
+
+    #[test]
+    fn test_empty_message_ignored() {
+        let result = parse_sse_message("");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_multiline_data() {
+        // Simulate data split across multiple data: lines
+        let msg = "event: content_block_delta\n\
+                   data: {\"type\":\"content_block_delta\",\"index\":0,\n\
+                   data: \"delta\":{\"type\":\"text_delta\",\"text\":\"multi\"}}";
+        let result = parse_sse_message(msg);
+        assert!(result.is_some());
+        let event = result.unwrap().unwrap();
+        match event {
+            StreamEvent::ContentBlockDelta { index, delta } => {
+                assert_eq!(index, 0);
+                match delta {
+                    Delta::TextDelta { text } => assert_eq!(text, "multi"),
+                    other => panic!("expected TextDelta, got {:?}", other),
+                }
+            }
+            other => panic!("expected ContentBlockDelta, got {:?}", other),
+        }
+    }
 }

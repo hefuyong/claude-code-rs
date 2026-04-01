@@ -132,3 +132,59 @@ fn walk_dir(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cc_permissions::{PermissionContext, PermissionMode};
+    use tempfile::TempDir;
+
+    fn make_ctx(dir: &TempDir) -> ToolContext {
+        ToolContext {
+            working_directory: dir.path().to_path_buf(),
+            permission_context: PermissionContext::new(PermissionMode::Bypass, vec![]),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_glob_finds_files() {
+        let tmp = TempDir::new().unwrap();
+        // Create some files to match.
+        std::fs::write(tmp.path().join("one.rs"), "fn main() {}").unwrap();
+        std::fs::write(tmp.path().join("two.rs"), "fn test() {}").unwrap();
+        std::fs::write(tmp.path().join("readme.md"), "# README").unwrap();
+        let sub = tmp.path().join("sub");
+        std::fs::create_dir(&sub).unwrap();
+        std::fs::write(sub.join("three.rs"), "mod sub;").unwrap();
+
+        let tool = GlobTool;
+        let ctx = make_ctx(&tmp);
+        let input = serde_json::json!({
+            "pattern": "**/*.rs"
+        });
+
+        let output = tool.call(input, &ctx).await.unwrap();
+        assert!(!output.is_error);
+        assert!(output.content.contains("one.rs"));
+        assert!(output.content.contains("two.rs"));
+        assert!(output.content.contains("three.rs"));
+        assert!(!output.content.contains("readme.md"));
+        assert!(output.content.contains("3 files matched"));
+    }
+
+    #[tokio::test]
+    async fn test_glob_no_matches() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("file.txt"), "content").unwrap();
+
+        let tool = GlobTool;
+        let ctx = make_ctx(&tmp);
+        let input = serde_json::json!({
+            "pattern": "**/*.py"
+        });
+
+        let output = tool.call(input, &ctx).await.unwrap();
+        assert!(!output.is_error);
+        assert!(output.content.contains("No files matched"));
+    }
+}

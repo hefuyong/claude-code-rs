@@ -517,4 +517,95 @@ mod tests {
         let result = reg.execute("diag", "", &mut ctx).await;
         assert!(result.is_some());
     }
+
+    #[test]
+    fn test_all_commands_have_descriptions() {
+        let mut reg = CommandRegistry::new();
+        register_builtin_commands(&mut reg);
+        for cmd in reg.list() {
+            assert!(
+                !cmd.description.is_empty(),
+                "Command '{}' has an empty description",
+                cmd.name
+            );
+        }
+    }
+
+    #[test]
+    fn test_no_duplicate_names() {
+        let mut reg = CommandRegistry::new();
+        register_builtin_commands(&mut reg);
+        let cmds = reg.list();
+        let mut seen = std::collections::HashSet::new();
+        for cmd in &cmds {
+            assert!(
+                seen.insert(&cmd.name),
+                "Duplicate command name: '{}'",
+                cmd.name
+            );
+        }
+    }
+
+    #[test]
+    fn test_no_duplicate_aliases() {
+        let mut reg = CommandRegistry::new();
+        register_builtin_commands(&mut reg);
+        let cmds = reg.list();
+        let mut seen = std::collections::HashSet::new();
+        for cmd in &cmds {
+            for alias in &cmd.aliases {
+                assert!(
+                    seen.insert(alias.clone()),
+                    "Duplicate alias: '{}' (from command '{}')",
+                    alias,
+                    cmd.name
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_clear_command_output() {
+        let mut reg = CommandRegistry::new();
+        register_builtin_commands(&mut reg);
+        let mut ctx = make_ctx();
+        let result = reg.execute("clear", "", &mut ctx).await.unwrap().unwrap();
+        assert!(!result.should_exit);
+        assert!(
+            result.text.contains("clear") || result.text.contains("Clear"),
+            "Expected 'clear' or 'Clear' in output, got: {}",
+            result.text
+        );
+    }
+
+    #[tokio::test]
+    async fn test_cost_command_output() {
+        let mut reg = CommandRegistry::new();
+        register_builtin_commands(&mut reg);
+        let mut ctx = make_ctx();
+        let result = reg.execute("cost", "", &mut ctx).await.unwrap().unwrap();
+        assert!(!result.should_exit);
+        assert!(
+            result.text.contains("$"),
+            "Expected '$' in cost output, got: {}",
+            result.text
+        );
+        assert!(result.text.contains("Total cost"));
+    }
+
+    #[tokio::test]
+    async fn test_status_command_output() {
+        let mut reg = CommandRegistry::new();
+        register_builtin_commands(&mut reg);
+        let mut ctx = make_ctx();
+        let result = reg.execute("status", "", &mut ctx).await.unwrap().unwrap();
+        assert!(!result.should_exit);
+        assert!(
+            result.text.contains("Model:"),
+            "Expected 'Model:' in status output, got: {}",
+            result.text
+        );
+        assert!(result.text.contains("Cost:"));
+        assert!(result.text.contains("Turns:"));
+    }
 }

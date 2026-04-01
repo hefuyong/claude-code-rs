@@ -1,6 +1,34 @@
 //! Miscellaneous commands (bug, feedback, auth, init, update).
 
 use crate::{Command, CommandContext, CommandOutput, CommandRegistry};
+use std::process::Stdio;
+
+/// Run a shell command and capture stdout+stderr.
+async fn run_cmd(program: &str, args: &[&str], cwd: &std::path::Path) -> String {
+    match tokio::process::Command::new(program)
+        .args(args)
+        .current_dir(cwd)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+    {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if output.status.success() {
+                if stdout.is_empty() {
+                    "(no output)".to_string()
+                } else {
+                    stdout.trim().to_string()
+                }
+            } else {
+                format!("Error (exit {}):\n{}{}", output.status, stdout, stderr)
+            }
+        }
+        Err(e) => format!("Failed to run '{program}': {e}"),
+    }
+}
 
 /// Register miscellaneous commands.
 pub fn register_misc_commands(registry: &mut CommandRegistry) {
@@ -82,28 +110,67 @@ pub fn register_misc_commands(registry: &mut CommandRegistry) {
         Box::new(|args: &str, _ctx: &mut CommandContext| {
             let args = args.trim().to_string();
             Box::pin(async move {
-                let has_key = std::env::var("ANTHROPIC_API_KEY").is_ok();
+                let api_key = std::env::var("ANTHROPIC_API_KEY").ok();
+                let has_key = api_key.is_some();
+                let key_format_ok = api_key
+                    .as_ref()
+                    .map(|k| k.starts_with("sk-ant-"))
+                    .unwrap_or(false);
+
                 if !args.is_empty() {
                     Ok(CommandOutput::text(
-                        "API key configured.\n\
-                         Note: for security, pass keys via ANTHROPIC_API_KEY \
-                         environment variable rather than command arguments.",
+                        "API key should be set via environment variable for security.\n\n\
+                         Do NOT pass keys as command arguments. Instead:\n\n\
+                         Option 1: Environment variable (recommended)\n\
+                         export ANTHROPIC_API_KEY=sk-ant-...\n\n\
+                         Option 2: Shell profile (persistent)\n\
+                         Add to ~/.bashrc or ~/.zshrc:\n\
+                         export ANTHROPIC_API_KEY=sk-ant-...\n\n\
+                         Option 3: .env file (project-specific)\n\
+                         Create .env in your project root:\n\
+                         ANTHROPIC_API_KEY=sk-ant-...\n\n\
+                         Get your key at: https://console.anthropic.com/settings/keys",
                     ))
                 } else if has_key {
-                    Ok(CommandOutput::text(
-                        "Already authenticated.\n\
-                         ANTHROPIC_API_KEY is set in environment.\n\n\
-                         To change: update the ANTHROPIC_API_KEY environment variable.",
-                    ))
+                    let masked = api_key.as_ref().map(|k| {
+                        if k.len() > 10 {
+                            format!("{}...{}", &k[..7], &k[k.len()-4..])
+                        } else {
+                            "******".to_string()
+                        }
+                    }).unwrap_or_default();
+
+                    let mut lines = vec![
+                        "Authentication Status".to_string(),
+                        "=====================".to_string(),
+                        format!("API key:    {masked}"),
+                        format!("Format:     {}", if key_format_ok { "valid (sk-ant-...)" } else { "unusual format" }),
+                    ];
+
+                    // Check for other relevant env vars
+                    if let Ok(base_url) = std::env::var("ANTHROPIC_BASE_URL") {
+                        lines.push(format!("Base URL:   {base_url}"));
+                    }
+
+                    lines.push(String::new());
+                    lines.push("To change: update the ANTHROPIC_API_KEY environment variable.".into());
+                    lines.push("To revoke: visit https://console.anthropic.com/settings/keys".into());
+
+                    Ok(CommandOutput::text(lines.join("\n")))
                 } else {
                     Ok(CommandOutput::text(
                         "Authentication Required\n\
-                         ======================\n\
-                         Set your API key:\n\
-                         export ANTHROPIC_API_KEY=sk-ant-...\n\n\
-                         Or add to ~/.claude/settings.json:\n\
-                         { \"apiKey\": \"sk-ant-...\" }\n\n\
-                         Get your key at: https://console.anthropic.com/",
+                         ======================\n\n\
+                         Set your Anthropic API key using one of these methods:\n\n\
+                         1. Environment variable (current session):\n\
+                            export ANTHROPIC_API_KEY=sk-ant-api03-...\n\n\
+                         2. Shell profile (persistent, add to ~/.bashrc or ~/.zshrc):\n\
+                            export ANTHROPIC_API_KEY=sk-ant-api03-...\n\n\
+                         3. Windows (PowerShell):\n\
+                            $env:ANTHROPIC_API_KEY=\"sk-ant-api03-...\"\n\n\
+                         Get your API key at:\n\
+                         https://console.anthropic.com/settings/keys\n\n\
+                         After setting the key, restart Claude Code.",
                     ))
                 }
             })
@@ -143,59 +210,126 @@ pub fn register_misc_commands(registry: &mut CommandRegistry) {
             Box::pin(async move {
                 let claude_dir = dir.join(".claude");
                 let settings_file = claude_dir.join("settings.json");
+                let memory_dir = claude_dir.join("memory");
                 let memory_file = dir.join("CLAUDE.md");
+                let gitignore_file = dir.join(".gitignore");
 
                 let mut actions = Vec::new();
 
+                // 1. Create .claude/ directory
                 if !claude_dir.exists() {
                     match tokio::fs::create_dir_all(&claude_dir).await {
                         Ok(_) => actions.push(format!(
-                            "Created {}",
+                            "[created] {}",
                             claude_dir.display()
                         )),
                         Err(e) => actions.push(format!(
-                            "Failed to create {}: {e}",
+                            "[error]   Failed to create {}: {e}",
                             claude_dir.display()
                         )),
                     }
                 } else {
                     actions.push(format!(
-                        "{} already exists",
+                        "[exists]  {}",
                         claude_dir.display()
                     ));
                 }
 
+                // 2. Create .claude/settings.json
                 if !settings_file.exists() {
-                    let default_settings = "{\n  \"permissions\": {},\n  \"hooks\": {}\n}\n";
-                    match tokio::fs::write(&settings_file, default_settings).await {
-                        Ok(_) => actions.push(format!(
-                            "Created {}",
-                            settings_file.display()
-                        )),
+                    let default_settings = serde_json::json!({
+                        "permissions": {
+                            "allow": [],
+                            "deny": []
+                        },
+                        "hooks": {},
+                        "mcpServers": {}
+                    });
+                    match serde_json::to_string_pretty(&default_settings) {
+                        Ok(json) => match tokio::fs::write(&settings_file, format!("{json}\n")).await {
+                            Ok(_) => actions.push(format!(
+                                "[created] {}",
+                                settings_file.display()
+                            )),
+                            Err(e) => actions.push(format!(
+                                "[error]   Failed to create settings: {e}"
+                            )),
+                        },
                         Err(e) => actions.push(format!(
-                            "Failed to create settings: {e}"
+                            "[error]   Failed to serialize settings: {e}"
                         )),
                     }
                 } else {
-                    actions.push("settings.json already exists".into());
+                    actions.push(format!(
+                        "[exists]  {}",
+                        settings_file.display()
+                    ));
                 }
 
+                // 3. Create .claude/memory/ directory
+                if !memory_dir.exists() {
+                    match tokio::fs::create_dir_all(&memory_dir).await {
+                        Ok(_) => actions.push(format!(
+                            "[created] {}",
+                            memory_dir.display()
+                        )),
+                        Err(e) => actions.push(format!(
+                            "[error]   Failed to create memory dir: {e}"
+                        )),
+                    }
+                } else {
+                    actions.push(format!(
+                        "[exists]  {}",
+                        memory_dir.display()
+                    ));
+                }
+
+                // 4. Check/suggest CLAUDE.md
                 if !memory_file.exists() {
                     actions.push(format!(
-                        "Tip: create {} with project context for Claude",
+                        "[tip]     Create {} with project context for Claude",
                         memory_file.display()
                     ));
                 } else {
                     actions.push(format!(
-                        "{} found",
+                        "[exists]  {}",
                         memory_file.display()
                     ));
+                }
+
+                // 5. Add .claude/ entries to .gitignore
+                let gitignore_entry = ".claude/sessions/\n.claude/memory/\n.claude/logs/\n";
+                if gitignore_file.exists() {
+                    match tokio::fs::read_to_string(&gitignore_file).await {
+                        Ok(content) => {
+                            if !content.contains(".claude/sessions") {
+                                let updated = format!("{content}\n# Claude Code RS\n{gitignore_entry}");
+                                match tokio::fs::write(&gitignore_file, updated).await {
+                                    Ok(_) => actions.push("[updated] .gitignore (added .claude/ entries)".into()),
+                                    Err(e) => actions.push(format!("[error]   Failed to update .gitignore: {e}")),
+                                }
+                            } else {
+                                actions.push("[exists]  .gitignore already has .claude/ entries".into());
+                            }
+                        }
+                        Err(e) => actions.push(format!("[error]   Failed to read .gitignore: {e}")),
+                    }
+                } else {
+                    let content = format!("# Claude Code RS\n{gitignore_entry}");
+                    match tokio::fs::write(&gitignore_file, content).await {
+                        Ok(_) => actions.push("[created] .gitignore".into()),
+                        Err(e) => actions.push(format!("[error]   Failed to create .gitignore: {e}")),
+                    }
                 }
 
                 Ok(CommandOutput::text(format!(
                     "Project Initialization\n\
                      =====================\n\
-                     {}",
+                     {}\n\n\
+                     Next steps:\n\
+                     - Edit CLAUDE.md to describe your project context\n\
+                     - Run /doctor to verify your setup\n\
+                     - Start chatting with Claude!",
                     actions.join("\n")
                 )))
             })
@@ -296,22 +430,70 @@ pub fn register_misc_commands(registry: &mut CommandRegistry) {
         Box::new(|_args: &str, ctx: &mut CommandContext| {
             let dir = ctx.working_dir.clone();
             Box::pin(async move {
-                match tokio::process::Command::new("git")
-                    .args(["log", "--oneline", "-20"])
-                    .current_dir(&dir)
-                    .output()
-                    .await
-                {
-                    Ok(output) => {
-                        let text = String::from_utf8_lossy(&output.stdout);
-                        Ok(CommandOutput::text(format!(
-                            "Recent Changes (last 20 commits):\n{text}"
-                        )))
+                let version = env!("CARGO_PKG_VERSION");
+                let mut lines = vec![
+                    format!("Changelog (claude-code-rs v{version})"),
+                    "=".repeat(40),
+                    String::new(),
+                ];
+
+                // Try to find and show CHANGELOG.md
+                let changelog_paths = [
+                    dir.join("CHANGELOG.md"),
+                    dir.join("changelog.md"),
+                    dir.join("CHANGES.md"),
+                ];
+
+                let mut found_changelog = false;
+                for path in &changelog_paths {
+                    if path.exists() {
+                        match tokio::fs::read_to_string(path).await {
+                            Ok(content) => {
+                                found_changelog = true;
+                                // Show first ~40 lines of changelog
+                                let preview_lines: Vec<&str> = content.lines().take(40).collect();
+                                lines.push(format!("From: {}", path.display()));
+                                lines.push(String::new());
+                                for line in &preview_lines {
+                                    lines.push(line.to_string());
+                                }
+                                if content.lines().count() > 40 {
+                                    lines.push(format!(
+                                        "\n... ({} more lines, see full file)",
+                                        content.lines().count() - 40
+                                    ));
+                                }
+                                break;
+                            }
+                            Err(_) => continue,
+                        }
                     }
-                    Err(_) => Ok(CommandOutput::text(
-                        "Not a git repository, or git is not installed.",
-                    )),
                 }
+
+                if !found_changelog {
+                    // Fallback to git log
+                    let git_log = run_cmd(
+                        "git",
+                        &["log", "--oneline", "--decorate", "-20"],
+                        &dir,
+                    ).await;
+
+                    if git_log.starts_with("Error") || git_log.starts_with("Failed") {
+                        lines.push("No CHANGELOG.md found and not in a git repository.".into());
+                        lines.push(String::new());
+                        lines.push("Releases: https://github.com/anthropics/claude-code/releases".into());
+                    } else {
+                        lines.push("Recent commits (last 20):".into());
+                        lines.push(String::new());
+                        lines.push(git_log);
+                    }
+                }
+
+                lines.push(String::new());
+                lines.push("Full release history:".into());
+                lines.push("https://github.com/anthropics/claude-code/releases".into());
+
+                Ok(CommandOutput::text(lines.join("\n")))
             })
         }),
     );

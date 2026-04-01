@@ -177,4 +177,34 @@ mod tests {
         };
         assert_eq!(token.time_until_expiry(), Duration::zero());
     }
+
+    #[test]
+    fn test_jwt_expiry_check() {
+        // Token that expired 10 seconds ago should be expired.
+        let expired = JwtToken {
+            access_token: "expired-tok".into(),
+            refresh_token: Some("refresh-tok".into()),
+            expires_at: Utc::now() - Duration::seconds(10),
+        };
+        assert!(expired.is_expired());
+        assert_eq!(expired.time_until_expiry(), Duration::zero());
+
+        // Token expiring in 1 hour should not be expired.
+        let fresh = JwtToken {
+            access_token: "fresh-tok".into(),
+            refresh_token: None,
+            expires_at: Utc::now() + Duration::hours(1),
+        };
+        assert!(!fresh.is_expired());
+        assert!(fresh.time_until_expiry().num_seconds() > 3500);
+
+        // Token exactly at the boundary (expires_at == now) should be expired
+        // since the check is >=.
+        let boundary = JwtToken {
+            access_token: "boundary-tok".into(),
+            refresh_token: None,
+            expires_at: Utc::now(),
+        };
+        assert!(boundary.is_expired());
+    }
 }

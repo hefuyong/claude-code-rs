@@ -227,3 +227,97 @@ impl CreateMessageRequest {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    /// Helper: create an ApiClient with a dummy key for unit testing.
+    fn test_client() -> ApiClient {
+        ApiClient::new(ApiClientConfig {
+            api_key: "test-key-for-unit-tests".to_string(),
+            ..Default::default()
+        })
+        .expect("should build test client")
+    }
+
+    #[test]
+    fn test_retry_delay_exponential() {
+        let client = test_client();
+        let no_error: Option<CcError> = None;
+
+        // attempt 1 => 1s (2^0 * 1000ms)
+        let d1 = client.retry_delay(1, &no_error);
+        assert_eq!(d1, Duration::from_millis(1000));
+
+        // attempt 2 => 2s (2^1 * 1000ms)
+        let d2 = client.retry_delay(2, &no_error);
+        assert_eq!(d2, Duration::from_millis(2000));
+
+        // attempt 3 => 4s (2^2 * 1000ms)
+        let d3 = client.retry_delay(3, &no_error);
+        assert_eq!(d3, Duration::from_millis(4000));
+
+        // Verify exponential doubling
+        assert_eq!(d2.as_millis(), d1.as_millis() * 2);
+        assert_eq!(d3.as_millis(), d2.as_millis() * 2);
+    }
+
+    #[test]
+    fn test_retry_delay_rate_limited() {
+        let client = test_client();
+        let rate_limited = Some(CcError::RateLimited {
+            retry_after_secs: Some(30),
+        });
+
+        // When rate limited with retry_after, should use that value
+        let delay = client.retry_delay(1, &rate_limited);
+        assert_eq!(delay, Duration::from_secs(30));
+
+        // Even on a later attempt, retry_after takes precedence
+        let delay2 = client.retry_delay(5, &rate_limited);
+        assert_eq!(delay2, Duration::from_secs(30));
+    }
+
+    #[test]
+    fn test_map_api_error_429() {
+        let client = test_client();
+        let err = client.map_api_error(429, "rate limited");
+        assert!(
+            matches!(err, CcError::RateLimited { .. }),
+            "429 should map to RateLimited, got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_map_api_error_401() {
+        let client = test_client();
+        let err = client.map_api_error(401, "invalid api key");
+        assert!(
+            matches!(err, CcError::Auth(_)),
+            "401 should map to Auth, got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_simple_request_creation() {
+        let model = ModelId("claude-sonnet-4-20250514".to_string());
+        let req = CreateMessageRequest::simple(&model, "Hello Claude", 1024);
+
+        assert_eq!(req.model, "claude-sonnet-4-20250514");
+        assert_eq!(req.max_tokens, 1024);
+        assert!(req.system.is_none());
+        assert!(req.tools.is_none());
+        assert!(req.temperature.is_none());
+        assert!(req.stop_sequences.is_none());
+        assert_eq!(req.messages.len(), 1);
+        assert_eq!(req.messages[0].role, "user");
+        match &req.messages[0].content {
+            types::ApiContent::Text(t) => assert_eq!(t, "Hello Claude"),
+            other => panic!("expected Text content, got {:?}", other),
+        }
+    }
+}

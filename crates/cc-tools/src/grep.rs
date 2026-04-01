@@ -186,3 +186,62 @@ fn collect_files(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cc_permissions::{PermissionContext, PermissionMode};
+    use tempfile::TempDir;
+
+    fn make_ctx(dir: &TempDir) -> ToolContext {
+        ToolContext {
+            working_directory: dir.path().to_path_buf(),
+            permission_context: PermissionContext::new(PermissionMode::Bypass, vec![]),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_grep_finds_matches() {
+        let tmp = TempDir::new().unwrap();
+        let file_path = tmp.path().join("haystack.txt");
+        std::fs::write(
+            &file_path,
+            "apple\nbanana\napricot\ncherry\navocado\n",
+        )
+        .unwrap();
+
+        let tool = GrepTool;
+        let ctx = make_ctx(&tmp);
+        let input = serde_json::json!({
+            "pattern": "^a",
+            "path": file_path.to_str().unwrap()
+        });
+
+        let output = tool.call(input, &ctx).await.unwrap();
+        assert!(!output.is_error);
+        // Should match apple, apricot, avocado (lines starting with 'a')
+        assert!(output.content.contains("apple"));
+        assert!(output.content.contains("apricot"));
+        assert!(output.content.contains("avocado"));
+        assert!(!output.content.contains("banana"));
+        assert!(output.content.contains("3 matches"));
+    }
+
+    #[tokio::test]
+    async fn test_grep_no_matches() {
+        let tmp = TempDir::new().unwrap();
+        let file_path = tmp.path().join("empty_search.txt");
+        std::fs::write(&file_path, "hello\nworld\n").unwrap();
+
+        let tool = GrepTool;
+        let ctx = make_ctx(&tmp);
+        let input = serde_json::json!({
+            "pattern": "zzz_nonexistent",
+            "path": file_path.to_str().unwrap()
+        });
+
+        let output = tool.call(input, &ctx).await.unwrap();
+        assert!(!output.is_error);
+        assert!(output.content.contains("No matches found"));
+    }
+}

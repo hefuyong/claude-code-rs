@@ -97,3 +97,69 @@ impl Tool for BashTool {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cc_permissions::{PermissionContext, PermissionMode};
+    use tempfile::TempDir;
+
+    fn make_ctx(dir: &TempDir) -> ToolContext {
+        ToolContext {
+            working_directory: dir.path().to_path_buf(),
+            permission_context: PermissionContext::new(PermissionMode::Bypass, vec![]),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_bash_echo() {
+        let tmp = TempDir::new().unwrap();
+        let tool = BashTool;
+        let ctx = make_ctx(&tmp);
+
+        let cmd = if cfg!(windows) { "echo hello" } else { "echo hello" };
+        let input = serde_json::json!({ "command": cmd });
+
+        let output = tool.call(input, &ctx).await.unwrap();
+        assert!(!output.is_error);
+        assert!(output.content.trim().contains("hello"));
+    }
+
+    #[tokio::test]
+    async fn test_bash_exit_code() {
+        let tmp = TempDir::new().unwrap();
+        let tool = BashTool;
+        let ctx = make_ctx(&tmp);
+
+        let cmd = if cfg!(windows) { "exit 42" } else { "exit 42" };
+        let input = serde_json::json!({ "command": cmd });
+
+        let output = tool.call(input, &ctx).await.unwrap();
+        assert!(output.is_error);
+        assert!(output.content.contains("Exit code:"));
+    }
+
+    #[tokio::test]
+    async fn test_bash_timeout() {
+        let tmp = TempDir::new().unwrap();
+        let tool = BashTool;
+        let ctx = make_ctx(&tmp);
+
+        // Use a command that sleeps longer than the timeout.
+        let cmd = if cfg!(windows) {
+            "ping -n 10 127.0.0.1"
+        } else {
+            "sleep 10"
+        };
+        let input = serde_json::json!({
+            "command": cmd,
+            "timeout": 500
+        });
+
+        let result = tool.call(input, &ctx).await;
+        // Should fail with a timeout error.
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(err_msg.contains("timed out"));
+    }
+}

@@ -341,4 +341,90 @@ mod tests {
             assert!(total_cost.contains("0.0123"));
         }
     }
+
+    #[test]
+    fn test_query_event_variants() {
+        // Verify every QueryEvent variant can be created and debug-printed.
+        let events: Vec<QueryEvent> = vec![
+            QueryEvent::Text("hello".into()),
+            QueryEvent::Thinking("reasoning...".into()),
+            QueryEvent::ToolUseStart {
+                name: "Bash".into(),
+                id: "toolu_123".into(),
+            },
+            QueryEvent::ToolResult {
+                id: "toolu_123".into(),
+                output: "file list".into(),
+                is_error: false,
+            },
+            QueryEvent::TurnComplete {
+                stop_reason: "end_turn".into(),
+                input_tokens: 100,
+                output_tokens: 50,
+            },
+            QueryEvent::Error("something went wrong".into()),
+            QueryEvent::Done {
+                total_turns: 2,
+                total_cost: "$0.01".into(),
+            },
+        ];
+
+        // All variants should format via Debug without panicking.
+        for event in &events {
+            let debug = format!("{:?}", event);
+            assert!(!debug.is_empty());
+        }
+
+        // Verify each variant matches the expected discriminant.
+        assert!(matches!(events[0], QueryEvent::Text(_)));
+        assert!(matches!(events[1], QueryEvent::Thinking(_)));
+        assert!(matches!(events[2], QueryEvent::ToolUseStart { .. }));
+        assert!(matches!(events[3], QueryEvent::ToolResult { .. }));
+        assert!(matches!(events[4], QueryEvent::TurnComplete { .. }));
+        assert!(matches!(events[5], QueryEvent::Error(_)));
+        assert!(matches!(events[6], QueryEvent::Done { .. }));
+    }
+
+    #[test]
+    fn test_query_loop_config() {
+        use cc_api::{ApiClient, ApiClientConfig};
+        use cc_tools_core::{ToolContext, ToolExecutor, ToolRegistry};
+        use cc_permissions::PermissionContext;
+        use std::path::PathBuf;
+        use std::sync::Arc;
+
+        let api_client = ApiClient::new(ApiClientConfig {
+            api_key: "test-key".into(),
+            ..Default::default()
+        })
+        .expect("should build API client");
+
+        let registry = ToolRegistry::new();
+        let executor = ToolExecutor::new(Arc::new(registry));
+
+        let tool_context = ToolContext {
+            working_directory: PathBuf::from("."),
+            permission_context: PermissionContext::new(
+                cc_permissions::PermissionMode::Bypass,
+                vec![],
+            ),
+        };
+
+        let config = QueryLoopConfig {
+            api_client,
+            tool_executor: executor,
+            tool_context,
+            model: "claude-sonnet-4-20250514".into(),
+            max_tokens: 4096,
+            max_turns: 10,
+        };
+
+        assert_eq!(config.model, "claude-sonnet-4-20250514");
+        assert_eq!(config.max_tokens, 4096);
+        assert_eq!(config.max_turns, 10);
+
+        // Verify QueryLoop can be created from config.
+        let query_loop = QueryLoop::new(config);
+        assert!(query_loop.messages().is_empty());
+    }
 }

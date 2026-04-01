@@ -426,4 +426,94 @@ mod tests {
         coord.permission_router_mut().add_default_tool("read".into());
         assert!(coord.permission_router().can_use_tool("any-worker", "read"));
     }
+
+    #[test]
+    fn test_spawn_and_list() {
+        // Directly insert a worker to simulate spawn (since actually spawning
+        // requires the claude-code binary). Verify it appears in list_workers.
+        let mut coord = Coordinator::new(4);
+        coord.enable();
+
+        let config = sample_config("test-worker");
+        let worker = Worker::new(config.clone());
+        let id = worker.id.clone();
+        // Worker starts in Starting status (no process handle yet).
+        coord.workers.insert(id.clone(), worker);
+
+        let list = coord.list_workers();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].name, "test-worker");
+        assert_eq!(list[0].status, WorkerStatus::Starting);
+        assert_eq!(list[0].id, id);
+        assert_eq!(list[0].task_description, "Task for test-worker");
+
+        // get_worker returns the same worker.
+        let w = coord.get_worker(&id).unwrap();
+        assert_eq!(w.config.name, "test-worker");
+        assert_eq!(w.config.agent_type, "code");
+        assert_eq!(coord.total_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_kill_worker() {
+        let mut coord = Coordinator::new(4);
+        coord.enable();
+
+        // Insert a worker in Starting status (no real process).
+        let config = sample_config("killable");
+        let worker = Worker::new(config);
+        let id = worker.id.clone();
+        coord.workers.insert(id.clone(), worker);
+        coord
+            .permission_router
+            .set_worker_tools(&id, vec!["bash".into()]);
+
+        assert_eq!(coord.total_count(), 1);
+
+        // Kill the worker. Since there is no process_handle, kill()
+        // just sets status to Killed without errors.
+        coord.kill_worker(&id).await.unwrap();
+
+        // Verify status is Killed and permissions were removed.
+        let w = coord.get_worker(&id).unwrap();
+        assert_eq!(w.status, WorkerStatus::Killed);
+        assert!(!w.is_alive());
+        assert!(w.status.is_terminal());
+        // Permissions should be removed.
+        assert!(!coord.permission_router().can_use_tool(&id, "bash"));
+    }
+
+    #[tokio::test]
+    async fn test_max_workers_limit() {
+        // With max_workers = 0, any spawn attempt should be rejected.
+        let mut coord = Coordinator::new(0);
+        coord.enable();
+
+        let result = coord.spawn_worker(sample_config("w1")).await;
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("Maximum worker count"),
+            "Expected max workers error, got: {err_msg}"
+        );
+
+        // After increasing the limit, the guard should pass.
+        coord.set_max_workers(1);
+        let result = coord.spawn_worker(sample_config("w2")).await;
+        // Either succeeds (binary found) or fails at process spawn (not limit).
+        match &result {
+            Ok(_) => {
+                // Binary found, spawn succeeded — that's fine.
+                assert_eq!(coord.list_workers().len(), 1);
+            }
+            Err(e) => {
+                // Should NOT be a "Maximum worker count" error.
+                let err2 = format!("{e}");
+                assert!(
+                    !err2.contains("Maximum worker count"),
+                    "Should have passed the limit check, got: {err2}"
+                );
+            }
+        }
+    }
 }
